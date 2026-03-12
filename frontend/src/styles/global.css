@@ -1,0 +1,69 @@
+:root {
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  color: #1f2a3d;
+  background: radial-gradient(circle at top left, #f2f9ff 0%, #f8fbff 45%, #ffffff 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background:
+    linear-gradient(145deg, rgba(13, 110, 253, 0.08), rgba(47, 128, 237, 0.02)),
+    radial-gradient(circle at 20% 20%, rgba(22, 119, 255, 0.15), transparent 45%),
+    #f4f8ff;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 460px;
+  border-radius: 16px;
+  box-shadow: 0 20px 56px rgba(34, 92, 170, 0.16);
+}
+
+.dashboard-layout {
+  min-height: 100vh;
+}
+
+.left-nav {
+  background: linear-gradient(190deg, #0a3778 0%, #0b57b5 55%, #147ce0 100%) !important;
+  box-shadow: 6px 0 22px rgba(8, 52, 109, 0.22);
+  display: flex;
+  flex-direction: column;
+}
+
+.left-nav-head {
+  padding: 18px 16px 0;
+}
+
+.left-nav-user {
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.left-nav-actions {
+  margin-top: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 992px) {
+  .left-nav-actions {
+    padding-bottom: 26px;
+  }
+}

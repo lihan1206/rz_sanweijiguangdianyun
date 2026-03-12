@@ -1,0 +1,70 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: pointcloud_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: pointcloud_platform
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: app123456
+      TZ: Asia/Shanghai
+    ports:
+      - "13306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    command: ["mysqld", "--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pointcloud_backend
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      APP_NAME: 三维激光点云处理平台
+      APP_ENV: production
+      API_V1_PREFIX: /api/v1
+      SECRET_KEY: super-secret-key-change-in-prod
+      ACCESS_TOKEN_EXPIRE_MINUTES: 120
+      MYSQL_HOST: db
+      MYSQL_PORT: 3306
+      MYSQL_DB: pointcloud_platform
+      MYSQL_USER: appuser
+      MYSQL_PASSWORD: app123456
+      UPLOAD_DIR: /app/uploads
+    ports:
+      - "8317:8000"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pointcloud_frontend
+    restart: unless-stopped
+    ports:
+      - "3317:80"
+    depends_on:
+      - backend
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.201.0.0/24
+
+volumes:
+  db_data:
+  uploads_data:

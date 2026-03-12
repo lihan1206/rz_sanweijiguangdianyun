@@ -1,0 +1,11 @@
+.git
+.gitignore
+node_modules
+__pycache__
+.venv
+*.log
+.DS_Store
+.vscode
+.idea
+dist
+build
