@@ -19,6 +19,11 @@ class TaskType(str, Enum):
     DENOISE = "denoise"
     CLIP_Z = "clip_z"
     FORMAT_CONVERT = "format_convert"
+    VOXEL_GRID_FILTER = "voxel_grid_filter"
+    STATISTICAL_OUTLIER_REMOVAL = "statistical_outlier_removal"
+    RANSAC_PLANE_SEGMENTATION = "ransac_plane_segmentation"
+    ICP_REGISTRATION = "icp_registration"
+    AI_OBJECT_DETECTION = "ai_object_detection"
 
 
 class ProcessingTask(Base):
@@ -26,12 +31,14 @@ class ProcessingTask(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     pointcloud_id: Mapped[int] = mapped_column(ForeignKey("pointclouds.id"), nullable=False)
+    scene_id: Mapped[int | None] = mapped_column(ForeignKey("collaboration_scenes.id"))
     task_type: Mapped[TaskType] = mapped_column(SqlEnum(TaskType), nullable=False)
     parameters: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[TaskStatus] = mapped_column(SqlEnum(TaskStatus), default=TaskStatus.PENDING, nullable=False)
     result_pointcloud_id: Mapped[int | None] = mapped_column(ForeignKey("pointclouds.id"))
-    output_format: Mapped[str] = mapped_column(String(16), default="xyz", nullable=False)
+    output_format: Mapped[str] = mapped_column(String(16), default="ply", nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+    progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
@@ -43,3 +50,4 @@ class ProcessingTask(Base):
     pointcloud = relationship("PointCloud", foreign_keys=[pointcloud_id], back_populates="tasks")
     result_pointcloud = relationship("PointCloud", foreign_keys=[result_pointcloud_id])
     creator = relationship("User", back_populates="tasks")
+    scene = relationship("CollaborationScene", back_populates="tasks")

@@ -29,3 +29,5 @@ class User(Base):
     pointclouds = relationship("PointCloud", back_populates="creator")
     tasks = relationship("ProcessingTask", back_populates="creator")
     logs = relationship("AuditLog", back_populates="user")
+    scenes = relationship("CollaborationScene", back_populates="creator")
+    sessions = relationship("CollaborationSession", back_populates="user")

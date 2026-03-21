@@ -45,6 +45,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
 
 import { PointCloudViewer } from '../components/PointCloudViewer';
+import { CollaborationPage } from './CollaborationPage';
 import { api } from '../services/api';
 import type {
   AuditLog,
@@ -612,12 +613,19 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
     });
   }
 
+  tabItems.push({
+    key: 'collaboration',
+    label: '协同场景',
+    children: <CollaborationPage user={user} />
+  });
+
   const menuItems = tabItems.map((item) => {
     const iconMap: Record<string, JSX.Element> = {
       pointcloud: <DatabaseOutlined />,
       tasks: <ToolOutlined />,
       users: <TeamOutlined />,
-      audit: <FileTextOutlined />
+      audit: <FileTextOutlined />,
+      collaboration: <TeamOutlined />
     };
     return {
       key: item.key,
