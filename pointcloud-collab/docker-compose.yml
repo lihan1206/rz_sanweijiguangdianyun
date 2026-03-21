@@ -1,0 +1,163 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: pointcloud_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: pointcloud_root_password
+      MYSQL_DATABASE: pointcloud_db
+      MYSQL_USER: pointcloud_user
+      MYSQL_PASSWORD: pointcloud_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pointcloud_network
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: pointcloud_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pointcloud_network
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pointcloud_backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=mysql+aiomysql://pointcloud_user:pointcloud_password@mysql:3306/pointcloud_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - JWT_SECRET_KEY=your-secret-key-change-in-production
+      - UPLOAD_DIR=/app/uploads
+      - PROCESSED_DIR=/app/processed
+      - MAX_FILE_SIZE=524288000
+    volumes:
+      - uploads_data:/app/uploads
+      - processed_data:/app/processed
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pointcloud_network
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: pointcloud_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - pointcloud_network
+
+  # Celery Worker（后台任务处理）
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pointcloud_celery_worker
+    restart: unless-stopped
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    environment:
+      - DATABASE_URL=mysql+aiomysql://pointcloud_user:pointcloud_password@mysql:3306/pointcloud_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - JWT_SECRET_KEY=your-secret-key-change-in-production
+      - UPLOAD_DIR=/app/uploads
+      - PROCESSED_DIR=/app/processed
+    volumes:
+      - uploads_data:/app/uploads
+      - processed_data:/app/processed
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - pointcloud_network
+
+  # Celery Beat（定时任务调度）
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pointcloud_celery_beat
+    restart: unless-stopped
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      - DATABASE_URL=mysql+aiomysql://pointcloud_user:pointcloud_password@mysql:3306/pointcloud_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - pointcloud_network
+
+  # Flower（Celery监控）
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pointcloud_flower
+    restart: unless-stopped
+    command: celery -A app.celery_app flower --port=5555
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+    networks:
+      - pointcloud_network
+
+volumes:
+  mysql_data:
+  redis_data:
+  uploads_data:
+  processed_data:
+
+networks:
+  pointcloud_network:
+    driver: bridge

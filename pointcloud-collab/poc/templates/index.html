@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点云协同处理系统 - 增强版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        .sidebar { 
+            position: fixed; 
+            left: 0; 
+            top: 0; 
+            width: 340px; 
+            height: 100vh; 
+            background: rgba(20, 20, 30, 0.95);
+            color: white;
+            overflow-y: auto;
+            z-index: 100;
+        }
+        .main-content { margin-left: 340px; }
+        .upload-area {
+            border: 2px dashed #4a5568;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-area:hover {
+            border-color: #63b3ed;
+            background: rgba(99, 179, 237, 0.1);
+        }
+        .pointcloud-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: rgba(255,255,255,0.1);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+        .pointcloud-item:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .pointcloud-item.selected {
+            border-left-color: #63b3ed;
+            background: rgba(99, 179, 237, 0.2);
+        }
+        .pointcloud-item.processing {
+            border-left-color: #f6ad55;
+        }
+        .user-cursor {
+            position: absolute;
+            pointer-events: none;
+            z-index: 50;
+            transition: all 0.1s linear;
+        }
+        .user-cursor-icon {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .user-cursor-label {
+            position: absolute;
+            left: 24px;
+            top: 0;
+            background: rgba(0,0,0,0.8);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 8px;
+            color: white;
+            z-index: 1000;
+            animation: slideIn 0.3s ease;
+            max-width: 300px;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .notification.success { background: #48bb78; }
+        .notification.error { background: #f56565; }
+        .notification.info { background: #4299e1; }
+        .notification.warning { background: #ed8936; }
+        .online-users {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .online-user {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: rgba(72, 187, 120, 0.2);
+            border-radius: 20px;
+            font-size: 12px;
+        }
+        .online-user-dot {
+            width: 8px;
+            height: 8px;
+            background: #48bb78;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .activity-item {
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            font-size: 12px;
+        }
+        .activity-item:last-child { border-bottom: none; }
+        .scene-selector {
+            background: rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录界面 -->
+    <div id="login-page" class="fixed inset-0 bg-gradient-to-br from-gray-900 to-blue-900 flex items-center justify-center z-50">
+        <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-8 w-96 border border-white/20">
+            <h2 class="text-2xl font-bold mb-2 text-center text-white">点云协同处理系统</h2>
+            <p class="text-gray-300 text-center mb-6 text-sm">多用户实时协同可视化</p>
+            <div class="space-y-4">
+                <select id="username" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="demo" class="text-black">用户 A (demo)</option>
+                    <option value="user2" class="text-black">用户 B (user2)</option>
+                </select>
+                <input type="password" id="password" placeholder="密码" value="demo123" 
+                    class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition font-semibold">
+                    进入系统
+                </button>
+            </div>
+            <p class="text-sm text-gray-400 mt-4 text-center">密码: demo123</p>
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="main-page" class="hidden">
+        <!-- 侧边栏 -->
+        <div class="sidebar p-4">
+            <div class="flex items-center justify-between mb-4">
+                <h1 class="text-lg font-bold">点云协同系统</h1>
+                <div class="flex items-center gap-2">
+                    <span class="online-user-dot"></span>
+                    <span class="text-xs text-gray-400">在线</span>
+                </div>
+            </div>
+            
+            <!-- 场景选择 -->
+            <div class="scene-selector">
+                <div class="text-xs text-gray-400 mb-2">当前场景</div>
+                <select id="scene-select" onchange="switchScene()" class="w-full bg-white/10 border border-white/20 rounded px-3 py-2 text-sm">
+                    <option value="1">协同测试场景</option>
+                </select>
+            </div>
+            
+            <!-- 在线用户 -->
+            <div class="mb-4">
+                <div class="text-xs text-gray-400 mb-2">在线用户</div>
+                <div id="online-users" class="online-users">
+                    <div class="online-user">
+                        <div class="online-user-dot"></div>
+                        <span id="current-user-name">我</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 用户信息 -->
+            <div class="mb-4 p-3 bg-white/5 rounded-lg">
+                <div class="text-xs text-gray-400">当前用户</div>
+                <div id="user-name" class="font-semibold text-blue-400"></div>
+            </div>
+            
+            <!-- 上传区域 -->
+            <div class="upload-area mb-4" onclick="document.getElementById('file-input').click()">
+                <div class="text-3xl mb-2">📤</div>
+                <div class="text-sm text-gray-300">上传点云到场景</div>
+                <div class="text-xs text-gray-500 mt-1">支持 .ply, .xyz</div>
+                <input type="file" id="file-input" class="hidden" accept=".ply,.xyz" onchange="uploadFile(event)">
+            </div>
+            
+            <!-- 场景点云列表 -->
+            <div class="mb-4">
+                <div class="text-xs text-gray-400 mb-2">场景点云</div>
+                <div id="pointcloud-list" class="text-sm">
+                    <div class="text-gray-500 text-center py-4">暂无点云</div>
+                </div>
+            </div>
+            
+            <!-- 处理工具 -->
+            <div class="mb-4" id="tools-panel" style="display:none;">
+                <div class="text-xs text-gray-400 mb-2">处理工具</div>
+                <div class="space-y-2">
+                    <button onclick="processVoxel()" class="w-full py-2 px-3 bg-blue-600/80 hover:bg-blue-600 rounded text-sm transition flex items-center justify-center gap-2">
+                        <span>🔧</span> 体素滤波
+                    </button>
+                    <button onclick="processOutlier()" class="w-full py-2 px-3 bg-green-600/80 hover:bg-green-600 rounded text-sm transition flex items-center justify-center gap-2">
+                        <span>🧹</span> 离群点移除
+                    </button>
+                    <button onclick="processSegment()" class="w-full py-2 px-3 bg-purple-600/80 hover:bg-purple-600 rounded text-sm transition flex items-center justify-center gap-2">
+                        <span>✂️</span> 平面分割
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 协同活动 -->
+            <div>
+                <div class="text-xs text-gray-400 mb-2">协同活动</div>
+                <div id="activity-log" class="max-h-32 overflow-y-auto text-xs"></div>
+            </div>
+        </div>
+        
+        <!-- 主内容区 -->
+        <div class="main-content relative">
+            <div id="canvas-container"></div>
+            
+            <!-- 其他用户光标容器 -->
+            <div id="user-cursors"></div>
+            
+            <!-- 工具栏 -->
+            <div class="fixed top-4 right-4 flex gap-2">
+                <button onclick="resetView()" class="bg-gray-800/80 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition backdrop-blur">
+                    🔄 重置视图
+                </button>
+                <button onclick="toggleGrid()" class="bg-gray-800/80 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition backdrop-blur">
+                    #️⃣ 网格
+                </button>
+                <button onclick="logout()" class="bg-red-600/80 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition backdrop-blur">
+                    🚪 退出
+                </button>
+            </div>
+            
+            <!-- 统计信息 -->
+            <div class="fixed bottom-4 right-4 bg-gray-900/80 backdrop-blur text-white p-4 rounded-lg text-sm">
+                <div>总点数: <span id="total-points" class="text-blue-400">0</span></div>
+                <div>选中: <span id="selected-name" class="text-green-400">-</span></div>
+                <div>场景ID: <span id="scene-id-display" class="text-gray-400">-</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let token = localStorage.getItem('token');
+        let user = null;
+        let ws = null;
+        let scene, camera, renderer, controls;
+        let pointCloudMeshes = {};
+        let currentPointCloud = null;
+        let currentSceneId = 1;
+        let gridHelper;
+        let API_BASE = '';
+        let otherUsers = {};
+        let isJoiningScene = false;
+
+        // 用户颜色映射
+        const userColors = {
+            1: '#4299e1',  // 蓝色
+            2: '#48bb78',  // 绿色
+        };
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            if (token) {
+                showMainPage();
+            }
+            initThreeJS();
+        });
+
+        // 登录
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, password})
+                });
+                
+                const data = await res.json();
+                if (data.code === 200) {
+                    token = data.data.access_token;
+                    user = data.data.user;
+                    localStorage.setItem('token', token);
+                    showMainPage();
+                    showNotification(`欢迎, ${user.username}!`, 'success');
+                } else {
+                    showNotification('登录失败', 'error');
+                }
+            } catch (e) {
+                showNotification('网络错误', 'error');
+            }
+        }
+
+        // 显示主页面
+        async function showMainPage() {
+            document.getElementById('login-page').classList.add('hidden');
+            document.getElementById('main-page').classList.remove('hidden');
+            document.getElementById('user-name').textContent = user?.username || 'User';
+            document.getElementById('current-user-name').textContent = user?.username || '我';
+            
+            // 连接WebSocket并加入场景
+            connectWebSocket();
+        }
+
+        // WebSocket连接
+        function connectWebSocket() {
+            const wsUrl = `ws://${location.host}/ws`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                console.log('[WebSocket] 已连接');
+                // 发送认证
+                ws.send(JSON.stringify({
+                    type: 'auth',
+                    token: token
+                }));
+            };
+            
+            ws.onmessage = (event) => {
+                const msg = JSON.parse(event.data);
+                handleWebSocketMessage(msg);
+            };
+            
+            ws.onclose = () => {
+                console.log('[WebSocket] 断开，5秒后重连...');
+                addActivityLog('连接断开，正在重连...', 'warning');
+                setTimeout(connectWebSocket, 5000);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('[WebSocket] 错误:', error);
+            };
+        }
+
+        // 处理WebSocket消息
+        function handleWebSocketMessage(msg) {
+            console.log('[WebSocket] 收到消息:', msg.type, msg);
+            
+            switch (msg.type) {
+                case 'scene_joined':
+                    isJoiningScene = false;
+                    addActivityLog('已加入协同场景', 'success');
+                    // 加载场景中其他用户
+                    if (msg.data.other_users) {
+                        msg.data.other_users.forEach(u => {
+                            addOtherUser(u);
+                        });
+                    }
+                    // 加载场景点云
+                    loadScenePointClouds(currentSceneId);
+                    break;
+                
+                case 'user_joined':
+                    addActivityLog(`用户 ${msg.data.username} 加入场景`, 'info');
+                    addOtherUser(msg.data);
+                    showNotification(`${msg.data.username} 加入场景`, 'info');
+                    break;
+                
+                case 'user_left':
+                    addActivityLog(`用户 ${msg.data.username} 离开场景`, 'warning');
+                    removeOtherUser(msg.data.user_id);
+                    break;
+                
+                case 'camera_update':
+                    updateOtherUserCamera(msg.data);
+                    break;
+                
+                case 'object_selected':
+                    addActivityLog(`${msg.data.username} 选择了点云`, 'info');
+                    highlightPointCloud(msg.data.object_id, msg.data.user_id);
+                    break;
+                
+                case 'pointcloud_uploaded':
+                    handlePointCloudUploaded(msg.data);
+                    break;
+                
+                case 'processing_started':
+                    handleProcessingStarted(msg.data);
+                    break;
+                
+                case 'processing_completed':
+                    handleProcessingCompleted(msg.data);
+                    break;
+                
+                case 'pong':
+                    break;
+                
+                default:
+                    console.log('[WebSocket] 未知消息类型:', msg.type);
+            }
+        }
+
+        // 切换场景
+        function switchScene() {
+            const sceneId = parseInt(document.getElementById('scene-select').value);
+            currentSceneId = sceneId;
+            document.getElementById('scene-id-display').textContent = sceneId;
+            
+            // 清除当前显示
+            Object.values(pointCloudMeshes).forEach(mesh => scene.remove(mesh));
+            pointCloudMeshes = {};
+            
+            // 加入新场景
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                isJoiningScene = true;
+                ws.send(JSON.stringify({
+                    type: 'join_scene',
+                    scene_id: sceneId
+                }));
+            }
+        }
+
+        // 添加其他用户
+        function addOtherUser(userData) {
+            if (userData.user_id === user.id) return;
+            
+            otherUsers[userData.user_id] = userData;
+            
+            // 创建光标元素
+            const cursorId = `cursor-${userData.user_id}`;
+            if (!document.getElementById(cursorId)) {
+                const cursor = document.createElement('div');
+                cursor.id = cursorId;
+                cursor.className = 'user-cursor';
+                cursor.innerHTML = `
+                    <div class="user-cursor-icon" style="background: ${userColors[userData.user_id] || '#888'}">
+                        ${userData.username[0].toUpperCase()}
+                    </div>
+                    <div class="user-cursor-label">${userData.username}</div>
+                `;
+                document.getElementById('user-cursors').appendChild(cursor);
+            }
+            
+            // 更新在线用户列表
+            updateOnlineUsersList();
+        }
+
+        // 移除其他用户
+        function removeOtherUser(userId) {
+            delete otherUsers[userId];
+            
+            const cursor = document.getElementById(`cursor-${userId}`);
+            if (cursor) cursor.remove();
+            
+            updateOnlineUsersList();
+        }
+
+        // 更新在线用户列表显示
+        function updateOnlineUsersList() {
+            const container = document.getElementById('online-users');
+            let html = `
+                <div class="online-user">
+                    <div class="online-user-dot"></div>
+                    <span>${user?.username || '我'} (我)</span>
+                </div>
+            `;
+            
+            Object.values(otherUsers).forEach(u => {
+                html += `
+                    <div class="online-user" style="background: ${userColors[u.user_id] || '#666'}33">
+                        <div class="online-user-dot" style="background: ${userColors[u.user_id] || '#666'}"></div>
+                        <span>${u.username}</span>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // 更新其他用户相机位置
+        function updateOtherUserCamera(data) {
+            const cursor = document.getElementById(`cursor-${data.user_id}`);
+            if (!cursor) return;
+            
+            // 将3D坐标投影到屏幕坐标
+            const pos = new THREE.Vector3(...data.position);
+            pos.project(camera);
+            
+            const x = (pos.x * 0.5 + 0.5) * (window.innerWidth - 340) + 340;
+            const y = (-pos.y * 0.5 + 0.5) * window.innerHeight;
+            
+            cursor.style.left = x + 'px';
+            cursor.style.top = y + 'px';
+        }
+
+        // 发送相机更新
+        let lastCameraUpdate = 0;
+        function sendCameraUpdate() {
+            const now = Date.now();
+            if (now - lastCameraUpdate < 100) return; // 限制发送频率
+            lastCameraUpdate = now;
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'camera_update',
+                    position: camera.position.toArray(),
+                    target: controls.target.toArray()
+                }));
+            }
+        }
+
+        // 上传文件到场景
+        async function uploadFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('name', file.name);
+            
+            try {
+                showNotification('正在上传到场景...', 'info');
+                const res = await fetch(`${API_BASE}/api/scenes/${currentSceneId}/pointclouds/upload`, {
+                    method: 'POST',
+                    headers: {'Authorization': `Bearer ${token}`},
+                    body: formData
+                });
+                
+                const data = await res.json();
+                if (data.code === 200) {
+                    showNotification('上传成功！所有用户可见', 'success');
+                    // 点云上传会通过WebSocket广播给所有用户
+                } else {
+                    showNotification(data.message || '上传失败', 'error');
+                }
+            } catch (e) {
+                showNotification('上传失败', 'error');
+            }
+        }
+
+        // 处理点云上传事件
+        function handlePointCloudUploaded(data) {
+            addActivityLog(`${data.username} 上传了点云 "${data.name}"`, 'info');
+            showNotification(`${data.username} 上传了新点云`, 'info');
+            
+            // 如果当前在场景中，自动加载新点云
+            if (data.scene_id === currentSceneId) {
+                loadScenePointClouds(currentSceneId);
+            }
+        }
+
+        // 处理处理开始事件
+        function handleProcessingStarted(data) {
+            addActivityLog(`${data.username} 开始对 "${data.pointcloud_name}" 进行${getTaskTypeName(data.task_type)}`, 'warning');
+            showNotification(`${data.username} 开始处理点云`, 'info');
+            
+            // 标记点云为处理中
+            const item = document.querySelector(`[data-pc-id="${data.pointcloud_id}"]`);
+            if (item) item.classList.add('processing');
+        }
+
+        // 处理处理完成事件
+        function handleProcessingCompleted(data) {
+            addActivityLog(`${data.username} 完成处理: "${data.pointcloud_name}"`, 'success');
+            showNotification(`${data.username} 完成点云处理`, 'success');
+            
+            // 重新加载场景点云
+            loadScenePointClouds(currentSceneId);
+        }
+
+        // 加载场景点云
+        async function loadScenePointClouds(sceneId) {
+            try {
+                const res = await fetch(`${API_BASE}/api/scenes/${sceneId}/pointclouds`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                
+                const data = await res.json();
+                if (data.code === 200) {
+                    renderPointCloudList(data.data.items);
+                    
+                    // 自动加载所有点云到3D视图
+                    for (const pc of data.data.items) {
+                        if (!pointCloudMeshes[pc.id]) {
+                            await loadPointCloudToScene(pc);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('加载场景点云失败:', e);
+            }
+        }
+
+        // 渲染点云列表
+        function renderPointCloudList(items) {
+            const container = document.getElementById('pointcloud-list');
+            
+            if (items.length === 0) {
+                container.innerHTML = '<div class="text-gray-500 text-center py-4">暂无点云</div>';
+                return;
+            }
+            
+            container.innerHTML = items.map(pc => `
+                <div class="pointcloud-item ${currentPointCloud?.id === pc.id ? 'selected' : ''} ${pc.status === 'processing' ? 'processing' : ''}" 
+                     data-pc-id="${pc.id}"
+                     onclick="selectPointCloud(${pc.id}, '${pc.name}')">
+                    <div class="flex justify-between items-start">
+                        <div class="font-medium truncate">${pc.name}</div>
+                        <div class="text-xs text-gray-400">${pc.owner_name}</div>
+                    </div>
+                    <div class="text-xs text-gray-400">${pc.point_count?.toLocaleString() || 0} 点</div>
+                </div>
+            `).join('');
+            
+            // 更新总点数
+            const totalPoints = items.reduce((sum, pc) => sum + (pc.point_count || 0), 0);
+            document.getElementById('total-points').textContent = totalPoints.toLocaleString();
+        }
+
+        // 加载点云到场景
+        async function loadPointCloudToScene(pc) {
+            try {
+                const res = await fetch(`${API_BASE}/api/pointclouds/${pc.id}/download`, {
+                    headers: {'Authorization': `Bearer ${token}`}
+                });
+                
+                const blob = await res.blob();
+                const text = await blob.text();
+                const points = parsePLY(text);
+                
+                displayPointCloudInScene(pc.id, pc.name, points);
+            } catch (e) {
+                console.error('加载点云失败:', pc.id, e);
+            }
+        }
+
+        // 选择点云
+        function selectPointCloud(id, name) {
+            currentPointCloud = {id, name};
+            document.getElementById('selected-name').textContent = name;
+            document.getElementById('tools-panel').style.display = 'block';
+            
+            // 更新列表选中状态
+            document.querySelectorAll('.pointcloud-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            const item = document.querySelector(`[data-pc-id="${id}"]`);
+            if (item) item.classList.add('selected');
+            
+            // 广播选择事件
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'select_object',
+                    object_id: id,
+                    object_type: 'pointcloud'
+                }));
+            }
+        }
+
+        // 高亮其他用户选择的点云
+        function highlightPointCloud(pcId, userId) {
+            const item = document.querySelector(`[data-pc-id="${pcId}"]`);
+            if (item) {
+                const color = userColors[userId] || '#888';
+                item.style.borderLeftColor = color;
+                item.style.background = color + '22';
+                
+                setTimeout(() => {
+                    item.style.borderLeftColor = '';
+                    item.style.background = '';
+                }, 2000);
+            }
+        }
+
+        // 处理功能
+        async function processVoxel() {
+            if (!currentPointCloud) return;
+            await processPointCloud('voxel', {voxel_size: 0.05});
+        }
+
+        async function processOutlier() {
+            if (!currentPointCloud) return;
+            await processPointCloud('outlier', {nb_neighbors: 20, std_ratio: 2.0});
+        }
+
+        async function processSegment() {
+            if (!currentPointCloud) return;
+            await processPointCloud('segment', {distance_threshold: 0.01});
+        }
+
+        async function processPointCloud(taskType, params) {
+            try {
+                showNotification('开始处理...', 'info');
+                const res = await fetch(`${API_BASE}/api/pointclouds/${currentPointCloud.id}/process`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        task_type: taskType,
+                        scene_id: currentSceneId,
+                        ...params
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.code === 200) {
+                    showNotification('处理完成！结果已同步到场景', 'success');
+                }
+            } catch (e) {
+                showNotification('处理失败', 'error');
+            }
+        }
+
+        // 解析PLY
+        function parsePLY(text) {
+            const lines = text.split('\n');
+            const points = [];
+            let headerEnd = false;
+            let vertexCount = 0;
+            let count = 0;
+            
+            for (const line of lines) {
+                if (!headerEnd) {
+                    if (line.startsWith('element vertex')) {
+                        vertexCount = parseInt(line.split(' ')[2]);
+                    }
+                    if (line === 'end_header') {
+                        headerEnd = true;
+                    }
+                    continue;
+                }
+                
+                if (count >= vertexCount) break;
+                
+                const parts = line.trim().split(/\s+/);
+                if (parts.length >= 3) {
+                    points.push({
+                        x: parseFloat(parts[0]),
+                        y: parseFloat(parts[1]),
+                        z: parseFloat(parts[2]),
+                        r: parts[3] ? parseFloat(parts[3]) / 255 : 0.5,
+                        g: parts[4] ? parseFloat(parts[4]) / 255 : 0.5,
+                        b: parts[5] ? parseFloat(parts[5]) / 255 : 0.5
+                    });
+                    count++;
+                }
+            }
+            
+            return points;
+        }
+
+        // 在场景中显示点云
+        function displayPointCloudInScene(id, name, points) {
+            // 如果已存在，先移除
+            if (pointCloudMeshes[id]) {
+                scene.remove(pointCloudMeshes[id]);
+            }
+            
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(points.length * 3);
+            const colors = new Float32Array(points.length * 3);
+            
+            points.forEach((p, i) => {
+                positions[i * 3] = p.x;
+                positions[i * 3 + 1] = p.y;
+                positions[i * 3 + 2] = p.z;
+                colors[i * 3] = p.r;
+                colors[i * 3 + 1] = p.g;
+                colors[i * 3 + 2] = p.b;
+            });
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const material = new THREE.PointsMaterial({
+                size: 0.02,
+                vertexColors: true
+            });
+            
+            const mesh = new THREE.Points(geometry, material);
+            mesh.name = name;
+            pointCloudMeshes[id] = mesh;
+            scene.add(mesh);
+            
+            // 调整相机以看到所有点云
+            fitCameraToAllPointClouds();
+        }
+
+        // Three.js初始化
+        function initThreeJS() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a1a2e);
+            
+            camera = new THREE.PerspectiveCamera(60, (window.innerWidth - 340) / window.innerHeight, 0.1, 1000);
+            camera.position.set(5, 5, 5);
+            
+            renderer = new THREE.WebGLRenderer({antialias: true});
+            renderer.setSize(window.innerWidth - 340, window.innerHeight);
+            container.appendChild(renderer.domElement);
+            
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.addEventListener('change', sendCameraUpdate);
+            
+            // 网格
+            gridHelper = new THREE.GridHelper(20, 20, 0x444444, 0x222222);
+            scene.add(gridHelper);
+            
+            // 坐标轴
+            const axesHelper = new THREE.AxesHelper(2);
+            scene.add(axesHelper);
+            
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            
+            // 动画循环
+            animate();
+        }
+        
+        // 动画循环
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // 调整相机以看到所有点云
+        function fitCameraToAllPointClouds() {
+            const meshes = Object.values(pointCloudMeshes);
+            if (meshes.length === 0) return;
+            
+            const box = new THREE.Box3();
+            meshes.forEach(mesh => box.expandByObject(mesh));
+            
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            controls.target.copy(center);
+            const distance = maxDim * 1.5;
+            camera.position.set(center.x + distance, center.y + distance, center.z + distance);
+            camera.lookAt(center);
+            controls.update();
+        }
+        
+        // 重置视图
+        function resetView() {
+            camera.position.set(5, 5, 5);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+        
+        // 切换网格
+        function toggleGrid() {
+            gridHelper.visible = !gridHelper.visible;
+        }
+        
+        // 显示通知
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.remove();
+            }, 3000);
+        }
+        
+        // 添加活动日志
+        function addActivityLog(message, type = 'info') {
+            const container = document.getElementById('activity-log');
+            const item = document.createElement('div');
+            item.className = 'activity-item';
+            
+            const time = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const colors = {
+                'info': '#63b3ed',
+                'success': '#48bb78',
+                'warning': '#ed8936',
+                'error': '#f56565'
+            };
+            
+            item.innerHTML = `<span style="color: #666">[${time}]</span> <span style="color: ${colors[type] || '#fff'}">${message}</span>`;
+            container.insertBefore(item, container.firstChild);
+            
+            // 限制日志数量
+            while (container.children.length > 20) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        // 获取任务类型名称
+        function getTaskTypeName(type) {
+            const names = {
+                'voxel': '体素滤波',
+                'outlier': '离群点移除',
+                'segment': '平面分割'
+            };
+            return names[type] || type;
+        }
+        
+        // 退出登录
+        function logout() {
+            localStorage.removeItem('token');
+            location.reload();
+        }
+        
+        // 窗口大小调整
+        window.addEventListener('resize', () => {
+            if (camera && renderer) {
+                camera.aspect = (window.innerWidth - 340) / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth - 340, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+</html>

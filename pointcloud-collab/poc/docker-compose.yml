@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  pointcloud-poc:
+    build: .
+    container_name: pointcloud_poc
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./poc.db:/app/poc.db
+    environment:
+      - PYTHONUNBUFFERED=1
