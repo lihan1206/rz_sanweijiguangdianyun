@@ -36,8 +36,40 @@ export interface PointSample {
   points: number[][];
 }
 
-export type TaskType = 'downsample' | 'denoise' | 'clip_z' | 'format_convert';
+export type TaskType = 'downsample' | 'denoise' | 'clip_z' | 'format_convert' | 
+                        'voxel_grid' | 'statistical_outlier' | 'ransac_plane' | 
+                        'passthrough' | 'icp_registration';
 export type TaskStatus = 'pending' | 'running' | 'success' | 'failed';
+
+// 协同会话类型
+export interface CollaborativeSession {
+  id: number;
+  session_name: string;
+  description: string | null;
+  created_by: number;
+  is_active: boolean;
+  max_users: number;
+  current_users: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SessionParticipant {
+  id: number;
+  session_id: number;
+  user_id: number;
+  joined_at: string;
+  last_active: string;
+  is_online: boolean;
+}
+
+export interface SessionUserInfo {
+  user_id: number;
+  username: string;
+  role: string;
+  is_online: boolean;
+  joined_at: string;
+}
 
 export interface ProcessingTask {
   id: number;

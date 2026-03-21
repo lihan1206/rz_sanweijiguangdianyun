@@ -14,12 +14,33 @@ services:
     volumes:
       - db_data:/var/lib/mysql
       - ./mysql-init:/docker-entrypoint-initdb.d
-    command: ["mysqld", "--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    command: ["mysqld", "--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max_allowed_packet=512M"]
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123456"]
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      default:
+        ipv4_address: 10.201.0.10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pointcloud_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru
+    ports:
+      - "16379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      default:
+        ipv4_address: 10.201.0.11
 
   backend:
     build:
@@ -32,14 +53,18 @@ services:
       APP_NAME: 三维激光点云处理平台
       APP_ENV: production
       API_V1_PREFIX: /api/v1
-      SECRET_KEY: super-secret-key-change-in-prod
+      SECRET_KEY: super-secret-key-change-in-prod-1234567890
       ACCESS_TOKEN_EXPIRE_MINUTES: 120
       MYSQL_HOST: db
       MYSQL_PORT: 3306
       MYSQL_DB: pointcloud_platform
       MYSQL_USER: appuser
       MYSQL_PASSWORD: app123456
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       UPLOAD_DIR: /app/uploads
+      MAX_WORKERS: 4
+      PYTHONPATH: /app
     ports:
       - "8317:8000"
     volumes:
@@ -47,6 +72,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
+    networks:
+      default:
+        ipv4_address: 10.201.0.20
 
   frontend:
     build:
@@ -58,6 +96,14 @@ services:
       - "3317:80"
     depends_on:
       - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+    networks:
+      default:
+        ipv4_address: 10.201.0.30
 
 networks:
   default:
@@ -67,4 +113,5 @@ networks:
 
 volumes:
   db_data:
+  redis_data:
   uploads_data:

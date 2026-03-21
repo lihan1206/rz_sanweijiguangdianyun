@@ -7,9 +7,11 @@ from app.models.task import TaskStatus, TaskType
 
 class TaskCreateRequest(BaseModel):
     pointcloud_id: int
+    session_id: int | None = Field(None, description="协同会话ID，用于实时协同场景")
     task_type: TaskType
     parameters: dict = Field(default_factory=dict)
     output_format: str = Field(default="xyz")
+    priority: int = Field(5, ge=1, le=10, description="任务优先级 1-10")
 
     @field_validator("output_format")
     @classmethod

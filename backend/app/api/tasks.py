@@ -37,9 +37,11 @@ def create_task(
 
     task = ProcessingTask(
         pointcloud_id=payload.pointcloud_id,
+        session_id=payload.session_id,
         task_type=payload.task_type,
         parameters=payload.parameters,
         output_format=payload.output_format,
+        priority=payload.priority,
         status=TaskStatus.PENDING,
         created_by=current_user.id,
     )

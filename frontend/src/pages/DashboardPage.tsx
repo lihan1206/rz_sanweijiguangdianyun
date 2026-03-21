@@ -26,6 +26,7 @@ import {
   Upload
 } from 'antd';
 import {
+  CloudOutlined,
   DatabaseOutlined,
   DeleteOutlined,
   ExclamationCircleFilled,
@@ -45,9 +46,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
 
 import { PointCloudViewer } from '../components/PointCloudViewer';
+import { CollaborationPanel } from '../components/CollaborationPanel';
+import { CollaborativeViewer } from '../components/CollaborativeViewer';
 import { api } from '../services/api';
 import type {
   AuditLog,
+  CollaborativeSession,
   PointCloud,
   PointCloudStats,
   PointSample,
@@ -105,6 +109,7 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [creatingTask, setCreatingTask] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -114,6 +119,7 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
   const [stats, setStats] = useState<PointCloudStats | null>(null);
   const [sample, setSample] = useState<PointSample | null>(null);
   const [activeMenuKey, setActiveMenuKey] = useState('pointcloud');
+  const [currentSession, setCurrentSession] = useState<CollaborativeSession | null>(null);
 
   const [uploadForm] = Form.useForm();
   const [taskForm] = Form.useForm();
@@ -279,7 +285,7 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
     setCreatingTask(true);
     try {
       const taskType = values.task_type as TaskType;
-      const params: Record<string, number> = {};
+      const params: Record<string, any> = {};
 
       if (taskType === 'downsample') {
         params.ratio = Number(values.ratio);
@@ -291,12 +297,32 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
         params.min_z = Number(values.min_z);
         params.max_z = Number(values.max_z);
       }
+      if (taskType === 'voxel_grid') {
+        params.voxel_size = Number(values.voxel_size);
+      }
+      if (taskType === 'statistical_outlier') {
+        params.nb_neighbors = Number(values.nb_neighbors);
+        params.std_ratio = Number(values.std_ratio);
+      }
+      if (taskType === 'ransac_plane') {
+        params.distance_threshold = Number(values.distance_threshold);
+        params.ransac_n = Number(values.ransac_n);
+        params.num_iterations = Number(values.num_iterations);
+        params.keep_inliers = values.keep_inliers !== false;
+      }
+      if (taskType === 'passthrough') {
+        params.axis = values.axis;
+        params.min_val = values.min_val !== '' ? Number(values.min_val) : null;
+        params.max_val = values.max_val !== '' ? Number(values.max_val) : null;
+      }
 
       await api.post('/tasks', {
         pointcloud_id: values.pointcloud_id,
+        session_id: currentSession?.id,
         task_type: taskType,
         output_format: values.output_format,
-        parameters: params
+        parameters: params,
+        priority: 5,
       });
 
       message.success('任务已提交，系统正在后台处理');
@@ -307,6 +333,24 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
       message.error(error.response?.data?.detail || '任务提交失败');
     } finally {
       setCreatingTask(false);
+    }
+  };
+
+  const handleExport = async (pointcloudId: number, format: string = 'ply'): Promise<void> => {
+    setExporting(true);
+    try {
+      const { data } = await api.post(`/export/${pointcloudId}`, null, {
+        params: { export_format: format }
+      });
+      
+      if (data.download_url) {
+        window.open(data.download_url, '_blank');
+        message.success(`导出成功，格式: ${format.toUpperCase()}`);
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '导出失败');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -325,6 +369,11 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
           <Text type="secondary" style={{ fontSize: 12 }}>
             {row.original_filename}
           </Text>
+          {row.session_id && (
+            <Tag color="purple" style={{ fontSize: 10 }}>
+              协同会话 #{row.session_id}
+            </Tag>
+          )}
         </Space>
       )
     },
@@ -361,6 +410,12 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
       render: (value: number) => formatBytes(value)
     },
     {
+      title: '版本',
+      dataIndex: 'version',
+      width: 80,
+      render: (value: number) => <Tag>v{value}</Tag>
+    },
+    {
       title: '状态',
       dataIndex: 'is_deleted',
       width: 110,
@@ -368,12 +423,24 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
     },
     {
       title: '操作',
-      width: 240,
+      width: 320,
       render: (_: unknown, record: PointCloud) => (
         <Space wrap>
           <Button icon={<EyeOutlined />} onClick={() => void openAnalysis(record)}>
             分析
           </Button>
+          <Select
+            placeholder="导出"
+            style={{ width: 100 }}
+            size="small"
+            onChange={(value) => void handleExport(record.id, value)}
+            value={undefined}
+            options={[
+              { label: '导出 PLY', value: 'ply' },
+              { label: '导出 OBJ', value: 'obj' },
+              { label: '导出 XYZ', value: 'xyz' },
+            ]}
+          />
           {record.is_deleted ? (
             <Button icon={<RollbackOutlined />} onClick={() => void handleRestore(record)}>
               恢复
@@ -432,6 +499,24 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
 
   const tabItems: { key: string; label: string; children: JSX.Element }[] = [
     {
+      key: 'collaboration',
+      label: '协同处理中心',
+      children: (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <CollaborationPanel
+            user={user}
+            canManage={canProcess}
+            onSessionSelect={setCurrentSession}
+            currentSessionId={currentSession?.id || null}
+          />
+          <CollaborativeViewer
+            session={currentSession}
+            currentUserId={user.id}
+          />
+        </Space>
+      )
+    },
+    {
       key: 'pointcloud',
       label: '点云数据管理',
       children: (
@@ -452,7 +537,7 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
             loading={loadingPointclouds}
             columns={pointcloudColumns}
             dataSource={pointclouds}
-            scroll={{ x: 1200 }}
+            scroll={{ x: 1400 }}
             pagination={{ pageSize: 8 }}
           />
         </Card>
@@ -463,6 +548,15 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
       label: '点云处理流程',
       children: (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {currentSession && (
+            <Alert
+              type="info"
+              message={`当前处于协同会话: ${currentSession.session_name}`}
+              description="在此创建的任务将关联到当前协同会话，所有参与者均可实时查看处理结果"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+          )}
           {canProcess ? (
             <Card title="创建处理任务" bordered={false}>
               <Form
@@ -483,7 +577,11 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
                           { label: '降采样', value: 'downsample' },
                           { label: '去噪', value: 'denoise' },
                           { label: '高度裁剪', value: 'clip_z' },
-                          { label: '格式转换', value: 'format_convert' }
+                          { label: '格式转换', value: 'format_convert' },
+                          { label: '体素格滤波', value: 'voxel_grid' },
+                          { label: '统计离群点移除', value: 'statistical_outlier' },
+                          { label: 'RANSAC平面分割', value: 'ransac_plane' },
+                          { label: '直通滤波', value: 'passthrough' },
                         ]}
                       />
                     </Form.Item>
@@ -527,6 +625,108 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
                     <Col xs={24} md={12}>
                       <Form.Item name="max_z" label="最大高度" rules={[{ required: true, message: '请输入最大高度' }]}>
                         <Input type="number" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {taskType === 'voxel_grid' && (
+                  <Form.Item
+                    name="voxel_size"
+                    label="体素大小(建议: 0.01-0.5)"
+                    rules={[{ required: true, message: '请输入体素大小' }]}
+                    initialValue={0.05}
+                  >
+                    <Input type="number" min={0.001} max={5} step={0.01} />
+                  </Form.Item>
+                )}
+
+                {taskType === 'statistical_outlier' && (
+                  <Row gutter={16}>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="nb_neighbors"
+                        label="邻居数量"
+                        rules={[{ required: true, message: '请输入邻居数量' }]}
+                        initialValue={20}
+                      >
+                        <Input type="number" min={5} max={100} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item
+                        name="std_ratio"
+                        label="标准差阈值"
+                        rules={[{ required: true, message: '请输入标准差阈值' }]}
+                        initialValue={2.0}
+                      >
+                        <Input type="number" min={0.5} max={10} step={0.1} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {taskType === 'ransac_plane' && (
+                  <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="distance_threshold"
+                        label="距离阈值"
+                        rules={[{ required: true, message: '请输入距离阈值' }]}
+                        initialValue={0.01}
+                      >
+                        <Input type="number" min={0.001} max={1} step={0.001} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="ransac_n"
+                        label="采样点数"
+                        rules={[{ required: true, message: '请输入采样点数' }]}
+                        initialValue={3}
+                      >
+                        <Input type="number" min={3} max={10} />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="num_iterations"
+                        label="迭代次数"
+                        rules={[{ required: true, message: '请输入迭代次数' }]}
+                        initialValue={1000}
+                      >
+                        <Input type="number" min={100} max={10000} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                )}
+
+                {taskType === 'passthrough' && (
+                  <Row gutter={16}>
+                    <Col xs={24} md={8}>
+                      <Form.Item
+                        name="axis"
+                        label="过滤轴"
+                        rules={[{ required: true, message: '请选择过滤轴' }]}
+                        initialValue="z"
+                      >
+                        <Select
+                          options={[
+                            { label: 'X轴', value: 'x' },
+                            { label: 'Y轴', value: 'y' },
+                            { label: 'Z轴', value: 'z' },
+                          ]}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="min_val" label="最小值(留空不限制)">
+                        <Input type="number" placeholder="不限制" />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="max_val" label="最大值(留空不限制)">
+                        <Input type="number" placeholder="不限制" />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -614,6 +814,7 @@ export function DashboardPage({ user, onLogout }: Props): JSX.Element {
 
   const menuItems = tabItems.map((item) => {
     const iconMap: Record<string, JSX.Element> = {
+      collaboration: <CloudOutlined />,
       pointcloud: <DatabaseOutlined />,
       tasks: <ToolOutlined />,
       users: <TeamOutlined />,

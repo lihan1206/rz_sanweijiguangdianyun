@@ -19,6 +19,10 @@ class TaskType(str, Enum):
     DENOISE = "denoise"
     CLIP_Z = "clip_z"
     FORMAT_CONVERT = "format_convert"
+    VOXEL_GRID = "voxel_grid"
+    STATISTICAL_OUTLIER = "statistical_outlier"
+    RANSAC_PLANE = "ransac_plane"
+    ICP_REGISTRATION = "icp_registration"
 
 
 class ProcessingTask(Base):
@@ -26,12 +30,14 @@ class ProcessingTask(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     pointcloud_id: Mapped[int] = mapped_column(ForeignKey("pointclouds.id"), nullable=False)
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("collaborative_sessions.id"))
     task_type: Mapped[TaskType] = mapped_column(SqlEnum(TaskType), nullable=False)
     parameters: Mapped[dict | None] = mapped_column(JSON)
     status: Mapped[TaskStatus] = mapped_column(SqlEnum(TaskStatus), default=TaskStatus.PENDING, nullable=False)
     result_pointcloud_id: Mapped[int | None] = mapped_column(ForeignKey("pointclouds.id"))
     output_format: Mapped[str] = mapped_column(String(16), default="xyz", nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
 
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

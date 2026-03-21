@@ -8,3 +8,5 @@ pydantic-settings==2.8.1
 passlib==1.7.4
 python-jose[cryptography]==3.3.0
 numpy==2.2.4
+open3d==0.18.0
+websockets==13.1

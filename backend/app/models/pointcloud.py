@@ -23,6 +23,8 @@ class PointCloud(Base):
     group_name: Mapped[str | None] = mapped_column(String(64))
     tags: Mapped[list[str] | None] = mapped_column(JSON)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("pointclouds.id"))
+    session_id: Mapped[int | None] = mapped_column(ForeignKey("collaborative_sessions.id"))
     is_archived: Mapped[bool] = mapped_column(default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime)
@@ -34,6 +36,8 @@ class PointCloud(Base):
     )
 
     creator = relationship("User", back_populates="pointclouds")
+    parent = relationship("PointCloud", remote_side=[id])
+    session = relationship("CollaborativeSession", back_populates="pointclouds")
     tasks = relationship(
         "ProcessingTask",
         back_populates="pointcloud",

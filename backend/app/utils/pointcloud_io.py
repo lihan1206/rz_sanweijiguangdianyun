@@ -2,14 +2,37 @@ from __future__ import annotations
 
 import csv
 import math
+import re
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 from fastapi import HTTPException, UploadFile, status
 
 SUPPORTED_IMPORT_FORMATS = {"las", "laz", "ply", "xyz", "e57", "csv"}
 PROCESSABLE_FORMATS = {"ply", "xyz", "csv"}
+
+# 安全配置
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+ALLOWED_MIME_TYPES = {
+    "application/octet-stream",
+    "text/plain",
+    "text/csv",
+    "application/ply",
+    "application/vnd.las",
+}
+# 危险的文件头特征 (防止恶意文件上传)
+DANGEROUS_PATTERNS = [
+    b"<?php",
+    b"<script",
+    b"#!/bin/bash",
+    b"#!/usr/bin/env",
+    b"CMD",
+    b"RUN ",
+]
+# PLY文件头正则匹配 (用于验证PLY文件格式)
+PLY_HEADER_PATTERN = re.compile(rb"^ply\nformat (ascii|binary_little_endian|binary_big_endian) 1.0\n")
 
 
 def _parse_float_triplet(parts: list[str]) -> list[float] | None:
@@ -28,6 +51,55 @@ def parse_tags(raw_tags: str | None) -> list[str]:
     return list(dict.fromkeys(tags))
 
 
+def validate_file_content(file_obj: BinaryIO, suffix: str) -> None:
+    """
+    验证文件内容是否为合法的点云文件，防止恶意文件上传
+    """
+    # 读取文件头进行检查
+    header = file_obj.read(4096)
+    file_obj.seek(0)  # 重置文件指针
+
+    # 检查危险模式
+    for pattern in DANGEROUS_PATTERNS:
+        if pattern in header.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="文件包含恶意内容，上传被拒绝",
+            )
+
+    # 按格式验证文件内容
+    if suffix == "ply":
+        # 验证PLY文件头
+        if not PLY_HEADER_PATTERN.match(header):
+            # 尝试检查二进制格式
+            if not header.startswith(b"ply"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="无效的PLY文件格式",
+                )
+    elif suffix in ["xyz", "csv"]:
+        # 检查文本文件是否包含有效的数值数据
+        lines = header.split(b"\n")[:10]
+        valid_lines = 0
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith(b"#"):
+                continue
+            # 尝试解析为浮点数三元组
+            parts = line.replace(b",", b" ").split()
+            if len(parts) >= 3:
+                try:
+                    float(parts[0]), float(parts[1]), float(parts[2])
+                    valid_lines += 1
+                except ValueError:
+                    continue
+        if valid_lines == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="文件内容无效，无法解析为点云数据",
+            )
+
+
 def save_upload_file(upload_file: UploadFile, upload_dir: str) -> tuple[str, int, str]:
     suffix = Path(upload_file.filename or "").suffix.lower().lstrip(".")
     if suffix not in SUPPORTED_IMPORT_FORMATS:
@@ -36,9 +108,30 @@ def save_upload_file(upload_file: UploadFile, upload_dir: str) -> tuple[str, int
             detail=f"不支持的点云格式: {suffix}，当前支持 {', '.join(sorted(SUPPORTED_IMPORT_FORMATS))}",
         )
 
+    # 检查文件大小
+    upload_file.file.seek(0, 2)  # 移动到文件末尾
+    file_size = upload_file.file.tell()
+    upload_file.file.seek(0)  # 重置文件指针
+
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"文件过大 ({file_size / 1024 / 1024:.2f} MB)，最大支持 {MAX_FILE_SIZE / 1024 / 1024} MB",
+        )
+
+    if file_size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="上传文件为空",
+        )
+
+    # 验证文件内容
+    validate_file_content(upload_file.file, suffix)
+
     target_dir = Path(upload_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # 使用安全的文件名
     safe_name = f"{uuid.uuid4().hex}.{suffix}"
     target_path = target_dir / safe_name
 
@@ -197,5 +290,42 @@ def run_processing(points: np.ndarray, task_type: str, parameters: dict) -> np.n
 
     if task_type == "format_convert":
         return points
+
+    # 新算法：体素格滤波
+    if task_type == "voxel_grid":
+        voxel_size = float(parameters.get("voxel_size", 0.05))
+        from app.utils.pointcloud_processing import voxel_grid_filter
+        return voxel_grid_filter(points, voxel_size)
+
+    # 新算法：统计离群点移除
+    if task_type == "statistical_outlier":
+        nb_neighbors = int(parameters.get("nb_neighbors", 20))
+        std_ratio = float(parameters.get("std_ratio", 2.0))
+        from app.utils.pointcloud_processing import statistical_outlier_removal
+        return statistical_outlier_removal(points, nb_neighbors, std_ratio)
+
+    # 新算法：RANSAC平面分割
+    if task_type == "ransac_plane":
+        distance_threshold = float(parameters.get("distance_threshold", 0.01))
+        ransac_n = int(parameters.get("ransac_n", 3))
+        num_iterations = int(parameters.get("num_iterations", 1000))
+        keep_inliers = parameters.get("keep_inliers", True)
+        from app.utils.pointcloud_processing import ransac_plane_segmentation
+        inliers, outliers, _ = ransac_plane_segmentation(
+            points, distance_threshold, ransac_n, num_iterations, return_plane=True
+        )
+        return inliers if keep_inliers else outliers
+
+    # 新算法：直通滤波
+    if task_type == "passthrough":
+        axis = parameters.get("axis", "z")
+        min_val = parameters.get("min_val")
+        max_val = parameters.get("max_val")
+        if min_val is not None:
+            min_val = float(min_val)
+        if max_val is not None:
+            max_val = float(max_val)
+        from app.utils.pointcloud_processing import passthrough_filter
+        return passthrough_filter(points, axis, min_val, max_val)
 
     raise HTTPException(status_code=400, detail=f"不支持的处理类型: {task_type}")
