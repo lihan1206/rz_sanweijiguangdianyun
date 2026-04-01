@@ -21,6 +21,20 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: pointcloud_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -40,12 +54,23 @@ services:
       MYSQL_USER: appuser
       MYSQL_PASSWORD: app123456
       UPLOAD_DIR: /app/uploads
+      MAX_FILE_SIZE_MB: 500
+      MAX_UPLOAD_TIMEOUT_SECONDS: 300
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      CELERY_TASK_TIMEOUT: 300
+      LOG_LEVEL: INFO
     ports:
       - "8317:8000"
     volumes:
       - uploads_data:/app/uploads
+      - logs_data:/app/logs
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   frontend:
@@ -67,4 +92,6 @@ networks:
 
 volumes:
   db_data:
+  redis_data:
   uploads_data:
+  logs_data:

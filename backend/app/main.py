@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,10 +18,26 @@ setup_logging()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("应用启动中...")
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        seed_data(db, settings.upload_dir)
+    finally:
+        db.close()
+    logger.info("服务启动完成")
+    yield
+    logger.info("应用关闭")
+
+
 app = FastAPI(
     title=settings.app_name,
     version="1.0.0",
-    description="三维激光点云数据处理与可视化系统 - 支持多用户协同处理",
+    description="三维激光点云数据处理与可视化系统 - 支持多用户协同处理、大文件上传、异步处理",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -36,18 +53,17 @@ register_exception_handlers(app)
 
 @app.get("/health", tags=["系统"])
 def health() -> dict:
-    return {"status": "ok", "service": settings.app_name}
+    return {"status": "ok", "service": settings.app_name, "env": settings.app_env}
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
-    try:
-        seed_data(db, settings.upload_dir)
-    finally:
-        db.close()
-    logger.info("服务启动完成")
+@app.get("/", tags=["系统"])
+def root() -> dict:
+    return {
+        "message": "三维激光点云处理平台 API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health",
+    }
 
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
