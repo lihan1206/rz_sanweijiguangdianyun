@@ -88,13 +88,17 @@ def validate_file_content(file_path: str, file_format: str) -> None:
 
     if file_format == "ply":
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                header = f.readline().strip()
-                if header.lower() != "ply":
+            with open(file_path, "rb") as f:
+                raw_header = f.readline()
+                try:
+                    header = raw_header.decode("utf-8").strip().lower()
+                except UnicodeDecodeError:
+                    header = raw_header.decode("latin-1").strip().lower()
+                if not header.startswith("ply"):
                     raise_file_error(
                         ErrorCode.FILE_CORRUPTED,
                         "PLY文件头格式错误",
-                        {"expected": "ply", "received": header},
+                        {"expected": "ply", "received": header[:10]},
                     )
         except UnicodeDecodeError:
             pass

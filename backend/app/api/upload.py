@@ -435,8 +435,8 @@ async def upload_chunk(
 @router.post("/chunk/complete/{upload_id}")
 async def complete_chunk_upload(
     upload_id: str,
-    name: str = Form(...),
     background_tasks: BackgroundTasks,
+    name: str = Form(...),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.ENGINEER)),
     db: Session = Depends(get_db),
 ) -> UploadResponse:

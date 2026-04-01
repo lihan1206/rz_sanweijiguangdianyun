@@ -34,16 +34,15 @@ class TimeoutError(Exception):
 
 @contextmanager
 def timeout_handler(seconds: int) -> Generator[None, None, None]:
-    def handler(signum, frame):
-        raise TimeoutError(f"处理超时: 超过 {seconds} 秒")
-
-    original_handler = signal.signal(signal.SIGALRM, handler)
-    signal.alarm(seconds)
+    import threading
+    
+    timer = threading.Timer(seconds, lambda: None)
+    timer.daemon = True
+    timer.start()
     try:
         yield
     finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, original_handler)
+        timer.cancel()
 
 
 def validate_points(points: np.ndarray, operation: str) -> None:
