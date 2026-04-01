@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import math
 import re
 import uuid
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Tuple
 
 import numpy as np
 from fastapi import HTTPException, UploadFile, status
 
-SUPPORTED_IMPORT_FORMATS = {"las", "laz", "ply", "xyz", "e57", "csv"}
+SUPPORTED_IMPORT_FORMATS = {"las", "laz", "ply", "xyz", "e57", "csv", "pcd"}
 PROCESSABLE_FORMATS = {"ply", "xyz", "csv"}
+MESH_OUTPUT_FORMATS = {"ply", "obj", "stl"}
 
 # 安全配置
 MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
@@ -252,6 +254,14 @@ def write_points(points: np.ndarray, output_path: str, fmt: str) -> None:
     raise HTTPException(status_code=400, detail=f"不支持的导出格式: {fmt}")
 
 
+def write_mesh_data(vertices: np.ndarray, faces: np.ndarray, output_path: str, fmt: str) -> None:
+    """写入网格数据"""
+    from app.utils.pointcloud_processing import write_mesh as _write_mesh
+    success = _write_mesh(vertices, faces, output_path, fmt)
+    if not success:
+        raise HTTPException(status_code=500, detail="网格写入失败")
+
+
 def estimate_density(points: np.ndarray) -> float:
     if points.size == 0:
         return 0.0
@@ -328,4 +338,62 @@ def run_processing(points: np.ndarray, task_type: str, parameters: dict) -> np.n
         from app.utils.pointcloud_processing import passthrough_filter
         return passthrough_filter(points, axis, min_val, max_val)
 
+    # 体素化
+    if task_type == "voxelization":
+        voxel_size = float(parameters.get("voxel_size", 0.1))
+        from app.utils.pointcloud_processing import voxelization
+        voxel_centers, _ = voxelization(points, voxel_size)
+        return voxel_centers
+    
+    # Poisson 表面重建（网格化）
+    if task_type == "poisson_reconstruction":
+        depth = int(parameters.get("depth", 8))
+        min_density = float(parameters.get("min_density", 0.01))
+        from app.utils.pointcloud_processing import poisson_surface_reconstruction
+        vertices, faces = poisson_surface_reconstruction(points, depth, min_density)
+        # 返回顶点和面片信息，这里我们返回顶点用于点云显示
+        return vertices
+    
+    # 网格化
+    if task_type == "meshing":
+        voxel_size = float(parameters.get("voxel_size", 0.1))
+        from app.utils.pointcloud_processing import marching_cubes_reconstruction
+        vertices, faces = marching_cubes_reconstruction(points, voxel_size)
+        return vertices
+
     raise HTTPException(status_code=400, detail=f"不支持的处理类型: {task_type}")
+
+
+def calculate_file_hash(file_path: str, hash_algorithm: str = "md5") -> str:
+    """
+    计算文件哈希值用于完整性校验
+    :param file_path: 文件路径
+    :param hash_algorithm: 哈希算法 (md5, sha1, sha256)
+    :return: 哈希值字符串
+    """
+    hash_func = {
+        "md5": hashlib.md5(),
+        "sha1": hashlib.sha1(),
+        "sha256": hashlib.sha256(),
+    }.get(hash_algorithm.lower(), hashlib.md5())
+    
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_func.update(chunk)
+    
+    return hash_func.hexdigest()
+
+
+def verify_file_integrity(file_path: str, expected_hash: str, hash_algorithm: str = "md5") -> bool:
+    """
+    验证文件完整性
+    :param file_path: 文件路径
+    :param expected_hash: 预期的哈希值
+    :param hash_algorithm: 哈希算法
+    :return: 是否验证通过
+    """
+    if not Path(file_path).exists():
+        return False
+    
+    actual_hash = calculate_file_hash(file_path, hash_algorithm)
+    return actual_hash.lower() == expected_hash.lower()

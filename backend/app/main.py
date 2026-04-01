@@ -9,7 +9,7 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.logging import setup_logging
-from app.models import audit_log, pointcloud, task, user  # noqa: F401
+from app.models import audit_log, pointcloud, task, upload, user  # noqa: F401
 from app.services.seed import seed_data
 
 setup_logging()

@@ -10,3 +10,10 @@ python-jose[cryptography]==3.3.0
 numpy==2.2.4
 open3d==0.18.0
 websockets==13.1
+celery==5.3.6
+redis==5.0.1
+python-dotenv==1.0.0
+trimesh==4.4.5
+scipy==1.13.0
+laspy==2.5.4
+pypcd4==0.3.2

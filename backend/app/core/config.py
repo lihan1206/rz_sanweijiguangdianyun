@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,7 +19,17 @@ class Settings(BaseSettings):
     mysql_user: str = "appuser"
     mysql_password: str = "app123456"
 
+    redis_host: str = "127.0.0.1"
+    redis_port: int = 6379
+    redis_db: int = 0
+
     upload_dir: str = "/app/uploads"
+    log_dir: str = "/app/logs"
+    max_file_size: int = 100 * 1024 * 1024  # 100MB
+    task_timeout: int = 600  # 10分钟
+
+    celery_broker_url: str = "redis://127.0.0.1:6379/0"
+    celery_result_backend: str = "redis://127.0.0.1:6379/0"
 
     @property
     def database_url(self) -> str:
@@ -26,6 +37,14 @@ class Settings(BaseSettings):
             f"mysql+pymysql://{self.mysql_user}:{self.mysql_password}"
             f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_db}?charset=utf8mb4"
         )
+
+    @property
+    def upload_path(self) -> Path:
+        return Path(self.upload_dir)
+
+    @property
+    def log_path(self) -> Path:
+        return Path(self.log_dir)
 
 
 @lru_cache

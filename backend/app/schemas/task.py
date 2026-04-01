@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,7 +17,7 @@ class TaskCreateRequest(BaseModel):
     @field_validator("output_format")
     @classmethod
     def validate_output_format(cls, value: str) -> str:
-        allowed = {"xyz", "csv", "ply"}
+        allowed = {"xyz", "csv", "ply", "obj", "stl"}
         lower = value.lower()
         if lower not in allowed:
             raise ValueError(f"输出格式仅支持: {', '.join(sorted(allowed))}")
@@ -39,7 +40,23 @@ class TaskListItem(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskDetail(TaskListItem):
+    """任务详情"""
+    updated_at: datetime
+    
+    model_config = {"from_attributes": True}
+
+
 class TaskCreateResponse(BaseModel):
     id: int
+    celery_task_id: str | None = None
     status: TaskStatus
     message: str
+
+
+class TaskStatusResponse(BaseModel):
+    """Celery 任务状态响应"""
+    task_id: str
+    status: str
+    result: Any = None
+    error: str | None = None

@@ -23,6 +23,9 @@ class TaskType(str, Enum):
     STATISTICAL_OUTLIER = "statistical_outlier"
     RANSAC_PLANE = "ransac_plane"
     ICP_REGISTRATION = "icp_registration"
+    VOXELIZATION = "voxelization"
+    POISSON_RECONSTRUCTION = "poisson_reconstruction"
+    MESHING = "meshing"
 
 
 class ProcessingTask(Base):
